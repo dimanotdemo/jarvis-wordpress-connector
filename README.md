@@ -76,6 +76,29 @@ existing plugin), or replace the file if you installed it as an MU-plugin. The
 `connector_version` field in `/state` lets JARVIS detect an out-of-date
 connector and prompt for an upgrade.
 
+**MU-plugin installs never self-update.** WordPress does not run must-use
+plugins through the plugin-update transient, so the GitHub self-update path
+cannot reach them — the file must be replaced by hand. A regular-plugin install
+can update itself; an MU-plugin install cannot, and no version number will ever
+make it.
+
+## Repairing a damaged connector
+
+A connector file can be truncated or partially written on upload. When that
+happens the route table still registers every endpoint while some handler
+functions are missing, so the site reports a healthy `connector_version` and
+answers `/state` normally, then fails with HTTP 500 `rest_invalid_handler` the
+moment one of the missing handlers is dispatched.
+
+Because the version number is intact, no update check will ever repair it — the
+site already claims to be current. The `capabilities` map in `/state`
+(connector ≥ 1.10.1) reports which endpoints are actually callable, which is the
+signal to trust over the version. Repair by re-uploading
+`jarvis-connector/jarvis-connector.php`, overwriting the file in place.
+
+If a re-upload does not fix it, the host is serving stale bytecode from an
+opcode cache — flush OPcache or restart PHP.
+
 ## Vulnerability scanning (optional but recommended)
 
 JARVIS flags plugins/themes/core with known CVEs using the **WPScan** vulnerability

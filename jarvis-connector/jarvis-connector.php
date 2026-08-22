@@ -3,7 +3,7 @@
  * Plugin Name: JARVIS Connector
  * Description: Secured REST endpoints so JARVIS can read plugin/theme/core
  *              update state and (under policy) apply updates.
- * Version:     1.10.0
+ * Version:     1.10.1
  * Author:      Dima
  * Author URI:  mailto:d@bernasovskiy.com
  * Update URI:  https://github.com/dimanotdemo/jarvis-wordpress-connector
@@ -52,7 +52,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'JARVIS_CONNECTOR_VERSION' ) ) {
-	define( 'JARVIS_CONNECTOR_VERSION', '1.10.0' );
+	define( 'JARVIS_CONNECTOR_VERSION', '1.10.1' );
 }
 
 const JARVIS_CONNECTOR_OPTION = 'jarvis_connector_secret';
@@ -328,7 +328,7 @@ function jarvis_connector_settings_page() {
  * plugins, themes, and core straight from WordPress's own update
  * transients — exactly what wp-admin would show.
  */
-function jarvis_connector_state( WP_REST_Request $request = null ) {
+function jarvis_connector_state( ?WP_REST_Request $request = null ) {
 	if ( ! function_exists( 'get_plugins' ) ) {
 		require_once ABSPATH . 'wp-admin/includes/plugin.php';
 	}
@@ -428,6 +428,7 @@ function jarvis_connector_state( WP_REST_Request $request = null ) {
 		'comments'          => $comments,
 		'environment'       => jarvis_connector_environment(),
 		'security'          => jarvis_connector_security_flags(),
+		'capabilities'      => jarvis_connector_capabilities(),
 	), 200 );
 }
 
@@ -458,6 +459,42 @@ function jarvis_connector_environment() {
 		'server_hostname' => function_exists( 'gethostname' ) ? ( gethostname() ?: null ) : null,
 		'server_software' => isset( $_SERVER['SERVER_SOFTWARE'] ) ? $_SERVER['SERVER_SOFTWARE'] : null,
 	);
+}
+
+/**
+ * Which of our own endpoints can actually serve a request.
+ *
+ * A route is registered from one place and its handler defined in another, so a
+ * damaged or partially-written connector file can advertise a route whose
+ * function does not exist. WordPress only discovers that at dispatch time and
+ * answers `rest_invalid_handler` (HTTP 500) — meaning a broken connector looks
+ * perfectly healthy right up until someone clicks the button, and the version
+ * number keeps promising a capability the file cannot deliver.
+ *
+ * This runs the same is_callable() check WordPress itself runs at dispatch,
+ * over the routes as actually registered, so JARVIS can tell "installed" from
+ * "working" without version-number guesswork. Deriving it from the live route
+ * table rather than a hand-kept list means a new endpoint is covered the day it
+ * is added, and no list can fall out of sync.
+ */
+function jarvis_connector_capabilities() {
+	$caps   = array();
+	$prefix = '/jarvis/v1/';
+	foreach ( rest_get_server()->get_routes() as $route => $handlers ) {
+		if ( 0 !== strpos( $route, $prefix ) ) {
+			continue;
+		}
+		$ok = true;
+		foreach ( $handlers as $handler ) {
+			if ( empty( $handler['callback'] ) || ! is_callable( $handler['callback'] ) ) {
+				$ok = false;
+				break;
+			}
+		}
+		$caps[ substr( $route, strlen( $prefix ) ) ] = $ok;
+	}
+	ksort( $caps );
+	return $caps;
 }
 
 /** Security-relevant configuration flags. Booleans only — JARVIS turns these
